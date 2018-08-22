@@ -10,7 +10,7 @@ pip3 install -r requirements.txt
 
 ### 脚本列表
 * testbulb.py 控制小米智能台灯脚本 
-* testGateway.py 控制网关设备脚本  
+* testGateway.py 控制网关设备脚本，正在编写中...    
 * testAirpurifier.py 控制小米空气净化器脚本  
 * UDP_Resend.py UDP重放攻击脚本  
 
