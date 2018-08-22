@@ -1,6 +1,9 @@
 import socket
 import time
 
+ip = "192.168.9.150"
+port = 54321
+
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 openbull = '6045cba1f18b7811dc65b66b08004500008c6a100000ff11ef48c0a809961b6d7c5cd4311f750078a70f21310070000000000453f4385af6b006f719146b112f8302eda4ec50e411ad8e89a75eb0846288e2afa9474d5329aca7b1216f1708128f4291a3e1a77b9133fb1b04b85ee042f473e2367a8c124a0faf4f330b194cea0c3764671d1deef77bb865e4b154513c486fb3518cdead3ca633'.decode('hex')
@@ -26,12 +29,12 @@ for data4 in closeack:
     closerev += chr(int('{:08b}'.format(ord(data4)),2))
 
 for i in range(1,5):
-    sock.sendto(opencmd,("192.168.9.150",54321))  #open mi air
+    sock.sendto(opencmd,(ip,port))  #open mi air
     time.sleep(1)
-    sock.sendto(openrev,("192.168.9.150",54321)) 
+    sock.sendto(openrev,(ip,port)) 
     time.sleep(1)
-    sock.sendto(closecmd,("192.168.9.150",54321))  #close mi air
+    sock.sendto(closecmd,(ip,port))  #close mi air
     time.sleep(1)
-    sock.sendto(closerev,("192.168.9.150",54321)) 
+    sock.sendto(closerev,(ip,port)) 
     time.sleep(1)
 sock.close()
