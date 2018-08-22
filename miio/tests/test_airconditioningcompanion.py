@@ -1,0 +1,204 @@
+import string
+import json
+import os
+from unittest import TestCase
+
+import pytest
+
+from miio import AirConditioningCompanion
+from miio.airconditioningcompanion import (OperationMode, FanSpeed, Power,
+                                           SwingMode, Led,
+                                           AirConditioningCompanionStatus,
+                                           AirConditioningCompanionException,
+                                           STORAGE_SLOT_ID, )
+
+STATE_ON = ['on']
+STATE_OFF = ['off']
+
+PUBLIC_ENUMS = {
+    'OperationMode': OperationMode,
+    'FanSpeed': FanSpeed,
+    'Power': Power,
+    'SwingMode': SwingMode,
+    'Led': Led,
+}
+
+
+def as_enum(d):
+    if "__enum__" in d:
+        name, member = d["__enum__"].split(".")
+        return getattr(PUBLIC_ENUMS[name], member)
+    else:
+        return d
+
+
+with open(os.path.join(os.path.dirname(__file__),
+                       'test_airconditioningcompanion.json')) as inp:
+    test_data = json.load(inp, object_hook=as_enum)
+
+
+class EnumEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if type(obj) in PUBLIC_ENUMS.values():
+            return {"__enum__": str(obj)}
+        return json.JSONEncoder.default(self, obj)
+
+
+class DummyAirConditioningCompanion(AirConditioningCompanion):
+    def __init__(self, *args, **kwargs):
+        self.state = ['010500978022222102', '01020119A280222221', '2']
+        self.last_ir_played = None
+
+        self.return_values = {
+            'get_model_and_state': self._get_state,
+            'start_ir_learn': lambda x: True,
+            'end_ir_learn': lambda x: True,
+            'get_ir_learn_result': lambda x: True,
+            'send_ir_code': lambda x: self._send_input_validation(x),
+            'send_cmd': lambda x: self._send_input_validation(x),
+            'set_power': lambda x: self._set_power(x),
+        }
+        self.start_state = self.state.copy()
+
+    def send(self, command: str, parameters=None, retry_count=3):
+        """Overridden send() to return values from `self.return_values`."""
+        return self.return_values[command](parameters)
+
+    def _reset_state(self):
+        """Revert back to the original state."""
+        self.state = self.start_state.copy()
+
+    def _get_state(self, props):
+        """Return the requested data"""
+        return self.state
+
+    def _set_power(self, value: str):
+        """Set the requested power state"""
+        if value == STATE_ON:
+            self.state[1] = self.state[1][:2] + '1' + self.state[1][3:]
+
+        if value == STATE_OFF:
+            self.state[1] = self.state[1][:2] + '0' + self.state[1][3:]
+
+    @staticmethod
+    def _hex_input_validation(payload):
+        return all(c in string.hexdigits for c in payload[0])
+
+    def _send_input_validation(self, payload):
+        if self._hex_input_validation(payload[0]):
+            self.last_ir_played = payload[0]
+            return True
+
+        return False
+
+    def get_last_ir_played(self):
+        return self.last_ir_played
+
+
+@pytest.fixture(scope="class")
+def airconditioningcompanion(request):
+    request.cls.device = DummyAirConditioningCompanion()
+    # TODO add ability to test on a real device
+
+
+@pytest.mark.usefixtures("airconditioningcompanion")
+class TestAirConditioningCompanion(TestCase):
+    def is_on(self):
+        return self.device.status().is_on
+
+    def state(self):
+        return self.device.status()
+
+    def test_on(self):
+        self.device.off()  # ensure off
+        assert self.is_on() is False
+
+        self.device.on()
+        assert self.is_on() is True
+
+    def test_off(self):
+        self.device.on()  # ensure on
+        assert self.is_on() is True
+
+        self.device.off()
+        assert self.is_on() is False
+
+    def test_status(self):
+        self.device._reset_state()
+
+        assert repr(self.state()) == repr(AirConditioningCompanionStatus(self.device.start_state))
+
+        assert self.is_on() is False
+        assert self.state().load_power == 2
+        assert self.state().air_condition_model == \
+            bytes.fromhex('010500978022222102')
+        assert self.state().model_format == 1
+        assert self.state().device_type == 5
+        assert self.state().air_condition_brand == 97
+        assert self.state().air_condition_remote == 80222221
+        assert self.state().state_format == 2
+        assert self.state().air_condition_configuration == '020119A2'
+        assert self.state().target_temperature == 25
+        assert self.state().swing_mode == SwingMode.Off
+        assert self.state().fan_speed == FanSpeed.Low
+        assert self.state().mode == OperationMode.Auto
+        assert self.state().led is False
+
+    def test_status_without_target_temperature(self):
+        self.device._reset_state()
+        self.device.state[1] = None
+        assert self.state().target_temperature is None
+
+    def test_status_without_swing_mode(self):
+        self.device._reset_state()
+        self.device.state[1] = None
+        assert self.state().swing_mode is None
+
+    def test_status_without_mode(self):
+        self.device._reset_state()
+        self.device.state[1] = None
+        assert self.state().mode is None
+
+    def test_status_without_fan_speed(self):
+        self.device._reset_state()
+        self.device.state[1] = None
+        assert self.state().fan_speed is None
+
+    def test_learn(self):
+        assert self.device.learn(STORAGE_SLOT_ID) is True
+        assert self.device.learn() is True
+
+    def test_learn_result(self):
+        assert self.device.learn_result() is True
+
+    def test_learn_stop(self):
+        assert self.device.learn_stop(STORAGE_SLOT_ID) is True
+        assert self.device.learn_stop() is True
+
+    def test_send_ir_code(self):
+        for args in test_data['test_send_ir_code_ok']:
+            with self.subTest():
+                self.device._reset_state()
+                self.assertTrue(self.device.send_ir_code(*args['in']))
+                self.assertSequenceEqual(
+                    self.device.get_last_ir_played(),
+                    args['out']
+                )
+
+        for args in test_data['test_send_ir_code_exception']:
+            with pytest.raises(AirConditioningCompanionException):
+                self.device.send_ir_code(*args['in'])
+
+    def test_send_command(self):
+        assert self.device.send_command('0000000') is True
+
+    def test_send_configuration(self):
+
+        for args in test_data['test_send_configuration_ok']:
+            with self.subTest():
+                self.device._reset_state()
+                self.assertTrue(self.device.send_configuration(*args['in']))
+                self.assertSequenceEqual(
+                    self.device.get_last_ir_played(),
+                    args['out']
+                )
